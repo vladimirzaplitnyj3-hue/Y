@@ -1,3 +1,4 @@
+import os
 import asyncio
 import logging
 import sqlite3
@@ -8,7 +9,7 @@ import aiohttp
 from datetime import datetime, timedelta
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ChatPermissions
-from pyrogram.errors import PeerIdInvalid, UsernameInvalid, UserNotParticipant, ChatAdminRequired, MessageNotModified
+from pyrogram.errors import PeerIdInvalid, UsernameInvalid, UserNotParticipant, ChatAdminRequired, MessageNotModified, UserNotParticipant, FloodWait
 
 # Настройка логирования
 logging.basicConfig(
@@ -16,12 +17,18 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Конфигурация бота
+# Конфигурация бота из переменных окружения
+API_ID = int(os.getenv("API_ID", "23258474"))
+API_HASH = os.getenv("API_HASH", "f5dd3f52675030a650ca2259f9fb79ce")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8371079711:AAEibNv9L7j7W9noxOmj6bTFPDBOfQdBeek")
+
 app = Client(
     "WARD_bot",
-    api_id=23258474,
-    api_hash="f5dd3f52675030a650ca2259f9fb79ce",
-    bot_token="8371079711:AAEibNv9L7j7W9noxOmj6bTFPDBOfQdBeek"
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
+    workers=100,
+    sleep_threshold=60
 )
 
 # Владельцы бота
@@ -92,35 +99,70 @@ STAFF_CACHE = {
 }
 USER_INFO_CACHE = {}
 
-# Подключение к базе данных
-conn = sqlite3.connect('WARD_database.db', check_same_thread=False)
-cursor = conn.cursor()
+# Инициализация базы данных
+def init_db():
+    """Инициализация базы данных"""
+    conn = sqlite3.connect('WARD_database.db', check_same_thread=False)
+    cursor = conn.cursor()
+    
+    # Создание таблиц
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS scammers (
+            user_id TEXT PRIMARY KEY, 
+            reason TEXT, 
+            proof_link TEXT, 
+            scam_rating INTEGER DEFAULT 4
+        )
+    """)
+    
+    tables = [
+        "presidents", "directors", "admins", "deputies", 
+        "trusted", "volunteers", "coders", "employees", 
+        "moderators", "designers", "reputation", 
+        "user_settings", "reprimands", "mentorship"
+    ]
+    
+    for table in tables:
+        if table == "trusted":
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table} (
+                    user_id TEXT PRIMARY KEY, 
+                    guarantor_id TEXT
+                )
+            """)
+        elif table == "reputation" or table == "reprimands":
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table} (
+                    user_id TEXT PRIMARY KEY, 
+                    count INTEGER DEFAULT 0
+                )
+            """)
+        elif table == "user_settings":
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table} (
+                    user_id TEXT PRIMARY KEY, 
+                    country TEXT
+                )
+            """)
+        elif table == "mentorship":
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table} (
+                    volunteer_id TEXT PRIMARY KEY, 
+                    mentor_id TEXT
+                )
+            """)
+        else:
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table} (
+                    user_id TEXT PRIMARY KEY
+                )
+            """)
+    
+    conn.commit()
+    return conn, cursor
 
-# Создание таблиц
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS scammers (
-        user_id TEXT PRIMARY KEY, 
-        reason TEXT, 
-        proof_link TEXT, 
-        scam_rating INTEGER DEFAULT 4
-    )
-""")
-
-cursor.execute("CREATE TABLE IF NOT EXISTS presidents (user_id TEXT PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS directors (user_id TEXT PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS admins (user_id TEXT PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS deputies (user_id TEXT PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS trusted (user_id TEXT PRIMARY KEY, guarantor_id TEXT)")
-cursor.execute("CREATE TABLE IF NOT EXISTS volunteers (user_id TEXT PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS coders (user_id TEXT PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS employees (user_id TEXT PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS moderators (user_id TEXT PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS designers (user_id TEXT PRIMARY KEY)")
-cursor.execute("CREATE TABLE IF NOT EXISTS reputation (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)")
-cursor.execute("CREATE TABLE IF NOT EXISTS user_settings (user_id TEXT PRIMARY KEY, country TEXT)")
-cursor.execute("CREATE TABLE IF NOT EXISTS reprimands (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)")
-cursor.execute("CREATE TABLE IF NOT EXISTS mentorship (volunteer_id TEXT PRIMARY KEY, mentor_id TEXT)")
-conn.commit()
+# Инициализируем базу данных
+conn, cursor = init_db()
 
 # Вспомогательные функции
 def get_russian_date():
@@ -529,7 +571,7 @@ def get_profile_keyboard(user_id, username):
 
 async def find_target(client, message, arg_text=None):
     """Находит цель по ID или юзернейму"""
-    if message.reply_to_message:
+    if message.reply_to_message and message.reply_to_message.from_user:
         return message.reply_to_message.from_user, None
     
     if not arg_text:
@@ -818,11 +860,15 @@ async def start_cmd(client, message):
         f"• Защищать твои сделки"
     )
     
-    await message.reply_photo(
-        photo=WELCOME_IMAGE,
-        caption=welcome_text,
-        reply_markup=welcome_keyboard()
-    )
+    try:
+        await message.reply_photo(
+            photo=WELCOME_IMAGE,
+            caption=welcome_text,
+            reply_markup=welcome_keyboard()
+        )
+    except Exception as e:
+        logging.error(f"Ошибка при отправке start: {e}")
+        await message.reply(welcome_text, reply_markup=welcome_keyboard())
 
 @app.on_message(filters.new_chat_members)
 async def welcome_new_member(client, message):
@@ -993,6 +1039,7 @@ async def handle_callbacks(client, callback_query: CallbackQuery):
         elif data.startswith("set_scam_rating_"):
             rating = int(data.split("_")[-1])
             if user.id not in PENDING_SCAM_ENTRIES:
+                await callback_query.message.edit_text("❌ Запрос устарел или не найден.")
                 return
             
             target_id, reason, proof_link = PENDING_SCAM_ENTRIES.pop(user.id)
@@ -1027,7 +1074,7 @@ async def handle_callbacks(client, callback_query: CallbackQuery):
                 try:
                     await client.send_message(
                         int(mentor_id),
-                        f"📩 **Запрос от сотрудника** {user.first_name} (@{user.username})\n\n"
+                        f"📩 **Запрос от сотрудника** {user.first_name} (@{user.username or 'без юзернейма'})\n\n"
                         f"⚠️ Ваш сотрудник хочет **занести в базу** пользователя:\n"
                         f"👤 **Скамер:** `{target_id}`\n"
                         f"📝 **Причина:** {reason}\n"
@@ -1838,9 +1885,15 @@ async def main():
     print(f"  • Гарант: {ROLE_IMAGES['Гарант']}")
     print(f"  • Админ: {ROLE_IMAGES['Админ']}")
     print(f"  • Кодер: {ROLE_IMAGES['Кодер']}")
-    await app.start()
-    await idle()
-    await app.stop()
+    
+    try:
+        await app.start()
+        print("✅ Бот успешно запущен!")
+        await idle()
+    except Exception as e:
+        logging.error(f"Ошибка запуска бота: {e}")
+    finally:
+        await app.stop()
 
 if __name__ == "__main__":
     try:
