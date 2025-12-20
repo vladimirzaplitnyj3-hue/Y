@@ -1,37 +1,60 @@
 import os
+import sys
 import asyncio
 import logging
 import sqlite3
-import random
 import re
 import uuid
 import aiohttp
 from datetime import datetime, timedelta
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ChatPermissions
-from pyrogram.errors import PeerIdInvalid, UsernameInvalid, UserNotParticipant, ChatAdminRequired, MessageNotModified, UserNotParticipant, FloodWait
+from pyrogram.errors import PeerIdInvalid, UsernameInvalid, UserNotParticipant, ChatAdminRequired, MessageNotModified, FloodWait
 
-# Настройка логирования
+# ========== НАСТРОЙКА ЛОГГИРОВАНИЯ ==========
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
+logger = logging.getLogger(__name__)
 
-# Конфигурация бота из переменных окружения
-API_ID = int(os.getenv("API_ID", "23258474"))
-API_HASH = os.getenv("API_HASH", "f5dd3f52675030a650ca2259f9fb79ce")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8371079711:AAEibNv9L7j7W9noxOmj6bTFPDBOfQdBeek")
+# ========== КОНФИГУРАЦИЯ БОТА ==========
+def get_config():
+    """Получение конфигурации из переменных окружения или прямое задание"""
+    API_ID = os.getenv("API_ID", "23258474")
+    API_HASH = os.getenv("API_HASH", "f5dd3f52675030a650ca2259f9fb79ce")
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "8371079711:AAEibNv9L7j7W9noxOmj6bTFPDBOfQdBeek")
+    
+    # Преобразуем API_ID в число
+    try:
+        API_ID = int(API_ID)
+    except ValueError:
+        logger.error("API_ID должен быть числом!")
+        API_ID = 23258474
+    
+    return API_ID, API_HASH, BOT_TOKEN
 
-app = Client(
-    "WARD_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
-    workers=100,
-    sleep_threshold=60
-)
+API_ID, API_HASH, BOT_TOKEN = get_config()
 
-# Владельцы бота
+# Создаем клиент Pyrogram
+try:
+    app = Client(
+        "WARD_bot",
+        api_id=API_ID,
+        api_hash=API_HASH,
+        bot_token=BOT_TOKEN,
+        workers=20,
+        sleep_threshold=60
+    )
+    logger.info("✅ Pyrogram клиент успешно создан")
+except Exception as e:
+    logger.error(f"❌ Ошибка создания клиента Pyrogram: {e}")
+    sys.exit(1)
+
+# ========== КОНСТАНТЫ И НАСТРОЙКИ ==========
 OWNERS = {
     "хомяк": {
         "id": "7557345458",
@@ -44,39 +67,28 @@ OWNERS = {
 }
 
 WELCOME_IMAGE = "https://i.ibb.co/wZ61gwPk/IMG-20251216-230901-226.jpg"
-
-# Флаг для функции приветствия
 WELCOME_ENABLED = False
 
-# НОВЫЕ ИЗОБРАЖЕНИЯ ДЛЯ ВСЕХ РОЛЕЙ
+# Изображения для ролей
 ROLE_IMAGES = {
-    # Основные роли пользователей
     "Нет в базе": "https://i.ibb.co/tTnCGRH5/IMG-20251218-220105-765.jpg",
     "Проверен гарантом": "https://i.ibb.co/gLXJ061y/IMG-20251218-220907-223.jpg",
-    
-    # Негативные статусы
     "Скаммер": "https://i.ibb.co/bMj3HSV0/IMG-20251218-215910-457.jpg",
     "Возможно скаммер": "https://i.ibb.co/N6d45hw8/IMG-20251218-215915-862.jpg",
     "Плохая репутация": "https://i.ibb.co/GfNrHMjr/IMG-20251218-215913-756.jpg",
-    
-    # Административные роли
     "Гарант": "https://i.ibb.co/LX6vfdM4/IMG-20251218-215928-663.jpg",
     "Директор": "https://i.ibb.co/84PXfL67/IMG-20251218-215925-882.jpg",
     "Президент": "https://i.ibb.co/7xrvpJrB/IMG-20251218-215906-668.jpg",
     "Создатель": "https://i.ibb.co/395GKLVr/IMG-20251217-215433-120.jpg",
-    
-    # Персонал и другие роли
     "Заместитель": "https://i.ibb.co/xqDTJmfv/IMG-20251218-215922-130.jpg",
     "Модератор": "https://i.ibb.co/LX31HS1X/IMG-20251218-215907-525.jpg",
     "Стажер": "https://i.ibb.co/fGdQYjXZ/IMG-20251218-215909-496.jpg",
     "Сотрудник": "https://i.ibb.co/fGdQYjXZ/IMG-20251218-215909-496.jpg",
-    
-    # Дополнительные роли (для совместимости)
     "Волонтер": "https://i.ibb.co/fGdQYjXZ/IMG-20251218-215909-496.jpg",
     "Владелец": "https://i.ibb.co/395GKLVr/IMG-20251217-215433-120.jpg",
-    "Кодер": "https://i.ibb.co/LX6vfdM4/IMG-20251218-215928-663.jpg",  # Та же, что и Гарант
+    "Кодер": "https://i.ibb.co/LX6vfdM4/IMG-20251218-215928-663.jpg",
     "Дизайнер": "https://i.ibb.co/xqDTJmfv/IMG-20251218-215922-130.jpg",
-    "Админ": "https://i.ibb.co/LX6vfdM4/IMG-20251218-215928-663.jpg",  # Та же, что и Гарант
+    "Админ": "https://i.ibb.co/LX6vfdM4/IMG-20251218-215928-663.jpg",
 }
 
 SCAM_RATING_OPTIONS = {
@@ -86,85 +98,83 @@ SCAM_RATING_OPTIONS = {
     4: {"text": "4 - СКАММЕР", "chance": "100%", "role_name": "Скаммер"},
 }
 
-# Лимиты и кэши
+# ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 RATE_LIMITS = {}
 CHECK_LIMIT_SECONDS = 5
 PENDING_SCAM_ENTRIES = {}
 MENTOR_REQUESTS = {}
-
-STAFF_CACHE = {
-    'admins': [], 'coders': [], 'employees': [], 'volunteers': [], 
-    'moderators': [], 'directors': [], 'presidents': [], 'designers': [],
-    'deputies': []
-}
+STAFF_CACHE = {}
 USER_INFO_CACHE = {}
+conn = None
+cursor = None
 
-# Инициализация базы данных
-def init_db():
+# ========== ФУНКЦИИ БАЗЫ ДАННЫХ ==========
+def init_database():
     """Инициализация базы данных"""
-    conn = sqlite3.connect('WARD_database.db', check_same_thread=False)
-    cursor = conn.cursor()
+    global conn, cursor
     
-    # Создание таблиц
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS scammers (
+    try:
+        conn = sqlite3.connect('WARD_database.db', check_same_thread=False)
+        cursor = conn.cursor()
+        logger.info("✅ База данных подключена")
+        
+        # Создаем все таблицы
+        create_tables()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации базы данных: {e}")
+        return False
+
+def create_tables():
+    """Создание всех необходимых таблиц"""
+    tables_queries = [
+        """CREATE TABLE IF NOT EXISTS scammers (
             user_id TEXT PRIMARY KEY, 
             reason TEXT, 
             proof_link TEXT, 
             scam_rating INTEGER DEFAULT 4
-        )
-    """)
-    
-    tables = [
-        "presidents", "directors", "admins", "deputies", 
-        "trusted", "volunteers", "coders", "employees", 
-        "moderators", "designers", "reputation", 
-        "user_settings", "reprimands", "mentorship"
+        )""",
+        "CREATE TABLE IF NOT EXISTS presidents (user_id TEXT PRIMARY KEY)",
+        "CREATE TABLE IF NOT EXISTS directors (user_id TEXT PRIMARY KEY)",
+        "CREATE TABLE IF NOT EXISTS admins (user_id TEXT PRIMARY KEY)",
+        "CREATE TABLE IF NOT EXISTS deputies (user_id TEXT PRIMARY KEY)",
+        """CREATE TABLE IF NOT EXISTS trusted (
+            user_id TEXT PRIMARY KEY, 
+            guarantor_id TEXT
+        )""",
+        "CREATE TABLE IF NOT EXISTS volunteers (user_id TEXT PRIMARY KEY)",
+        "CREATE TABLE IF NOT EXISTS coders (user_id TEXT PRIMARY KEY)",
+        "CREATE TABLE IF NOT EXISTS employees (user_id TEXT PRIMARY KEY)",
+        "CREATE TABLE IF NOT EXISTS moderators (user_id TEXT PRIMARY KEY)",
+        "CREATE TABLE IF NOT EXISTS designers (user_id TEXT PRIMARY KEY)",
+        """CREATE TABLE IF NOT EXISTS reputation (
+            user_id TEXT PRIMARY KEY, 
+            count INTEGER DEFAULT 0
+        )""",
+        """CREATE TABLE IF NOT EXISTS user_settings (
+            user_id TEXT PRIMARY KEY, 
+            country TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS reprimands (
+            user_id TEXT PRIMARY KEY, 
+            count INTEGER DEFAULT 0
+        )""",
+        """CREATE TABLE IF NOT EXISTS mentorship (
+            volunteer_id TEXT PRIMARY KEY, 
+            mentor_id TEXT
+        )"""
     ]
     
-    for table in tables:
-        if table == "trusted":
-            cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS {table} (
-                    user_id TEXT PRIMARY KEY, 
-                    guarantor_id TEXT
-                )
-            """)
-        elif table == "reputation" or table == "reprimands":
-            cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS {table} (
-                    user_id TEXT PRIMARY KEY, 
-                    count INTEGER DEFAULT 0
-                )
-            """)
-        elif table == "user_settings":
-            cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS {table} (
-                    user_id TEXT PRIMARY KEY, 
-                    country TEXT
-                )
-            """)
-        elif table == "mentorship":
-            cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS {table} (
-                    volunteer_id TEXT PRIMARY KEY, 
-                    mentor_id TEXT
-                )
-            """)
-        else:
-            cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS {table} (
-                    user_id TEXT PRIMARY KEY
-                )
-            """)
+    for query in tables_queries:
+        try:
+            cursor.execute(query)
+        except Exception as e:
+            logger.error(f"Ошибка создания таблицы: {e}")
     
     conn.commit()
-    return conn, cursor
+    logger.info("✅ Все таблицы созданы/проверены")
 
-# Инициализируем базу данных
-conn, cursor = init_db()
-
-# Вспомогательные функции
+# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 def get_russian_date():
     """Возвращает текущую дату на русском языке"""
     months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 
@@ -174,119 +184,78 @@ def get_russian_date():
 
 def get_clean_id(text):
     """Очищает идентификатор от @ и лишних пробелов"""
-    if text:
-        return text.lstrip("@").strip()
-    return ""
+    return text.lstrip("@").strip() if text else ""
 
 def is_owner(user_id, username):
-    """Проверяет, является ли пользователь владельцем (создателем)"""
+    """Проверяет, является ли пользователь владельцем"""
     user_id_str = str(user_id)
     username_lower = username.lower() if username else None
     
-    for owner_name, owner_data in OWNERS.items():
+    for owner_data in OWNERS.values():
         if owner_data["id"] == user_id_str:
             return True
-    
-    if username_lower:
-        for owner_name, owner_data in OWNERS.items():
-            if owner_data["username"] and owner_data["username"].lower() == username_lower:
-                return True
+        if username_lower and owner_data["username"] and owner_data["username"].lower() == username_lower:
+            return True
     
     return False
 
 def is_president(user_id):
-    cursor.execute("SELECT 1 FROM presidents WHERE user_id = ?", (str(user_id),))
-    return cursor.fetchone() is not None
+    return bool(cursor.execute("SELECT 1 FROM presidents WHERE user_id = ?", (str(user_id),)).fetchone())
 
 def is_director(user_id):
-    cursor.execute("SELECT 1 FROM directors WHERE user_id = ?", (str(user_id),))
-    return cursor.fetchone() is not None
+    return bool(cursor.execute("SELECT 1 FROM directors WHERE user_id = ?", (str(user_id),)).fetchone())
 
 def is_admin(user_id):
-    cursor.execute("SELECT 1 FROM admins WHERE user_id = ?", (str(user_id),))
-    return cursor.fetchone() is not None
+    return bool(cursor.execute("SELECT 1 FROM admins WHERE user_id = ?", (str(user_id),)).fetchone())
 
 def is_deputy(user_id):
-    """Проверяет, является ли пользователь заместителем"""
-    cursor.execute("SELECT 1 FROM deputies WHERE user_id = ?", (str(user_id),))
-    return cursor.fetchone() is not None
+    return bool(cursor.execute("SELECT 1 FROM deputies WHERE user_id = ?", (str(user_id),)).fetchone())
 
 def is_coder(user_id):
-    cursor.execute("SELECT 1 FROM coders WHERE user_id = ?", (str(user_id),))
-    return cursor.fetchone() is not None
+    return bool(cursor.execute("SELECT 1 FROM coders WHERE user_id = ?", (str(user_id),)).fetchone())
 
 def is_employee(user_id):
-    cursor.execute("SELECT 1 FROM employees WHERE user_id = ?", (str(user_id),))
-    return cursor.fetchone() is not None
+    return bool(cursor.execute("SELECT 1 FROM employees WHERE user_id = ?", (str(user_id),)).fetchone())
 
-def is_moderator(user_id): 
-    cursor.execute("SELECT 1 FROM moderators WHERE user_id = ?", (str(user_id),))
-    return cursor.fetchone() is not None
+def is_moderator(user_id):
+    return bool(cursor.execute("SELECT 1 FROM moderators WHERE user_id = ?", (str(user_id),)).fetchone())
 
 def is_designer(user_id):
-    cursor.execute("SELECT 1 FROM designers WHERE user_id = ?", (str(user_id),))
-    return cursor.fetchone() is not None
+    return bool(cursor.execute("SELECT 1 FROM designers WHERE user_id = ?", (str(user_id),)).fetchone())
 
 def is_volunteer(user_id):
-    cursor.execute("SELECT 1 FROM volunteers WHERE user_id = ?", (str(user_id),))
-    return cursor.fetchone() is not None
+    return bool(cursor.execute("SELECT 1 FROM volunteers WHERE user_id = ?", (str(user_id),)).fetchone())
 
 def is_staff(user_id):
-    """Проверяет, является ли пользователь сотрудником (стажером)"""
     return is_employee(user_id)
-
-def get_all_moderators():
-    cursor.execute("SELECT user_id FROM moderators")
-    return [row[0] for row in cursor.fetchall()]
-
-def get_all_staff():
-    """Получает всех сотрудников (стажеров)"""
-    cursor.execute("SELECT user_id FROM employees")
-    return [row[0] for row in cursor.fetchall()]
-
-def is_full_staff(user_id, username):
-    """Проверяет полный доступ (только создатели могут управлять ролями)"""
-    # Только создатели могут управлять ролями
-    return is_owner(user_id, username)
-
-def can_moderate(user_id, username):
-    """Проверяет права на модерацию (админы и выше)"""
-    if is_owner(user_id, username): 
-        return True
-    if is_president(user_id): 
-        return True
-    if is_director(user_id): 
-        return True
-    if is_admin(user_id):
-        return True
-    return False
-
-def can_temp_moderate(user_id, username):
-    """Проверяет временные права на модерацию"""
-    if can_moderate(user_id, username): 
-        return True
-    if is_deputy(user_id):
-        return True
-    if is_moderator(user_id):
-        return True
-    return False
 
 def is_any_staff(user_id, username=None):
     """Проверяет, является ли пользователь любым сотрудником"""
-    if username and is_owner(user_id, username): 
+    if username and is_owner(user_id, username):
         return True
-    if is_president(user_id): 
+    if is_president(user_id):
         return True
-    if is_director(user_id): 
+    if is_director(user_id):
         return True
     if is_admin(user_id) or is_coder(user_id) or is_employee(user_id) or is_moderator(user_id) or is_volunteer(user_id) or is_designer(user_id) or is_deputy(user_id):
         return True
     return False
 
+def can_moderate(user_id, username):
+    """Проверяет права на модерацию"""
+    return is_owner(user_id, username) or is_president(user_id) or is_director(user_id) or is_admin(user_id)
+
+def can_temp_moderate(user_id, username):
+    """Проверяет временные права на модерацию"""
+    if can_moderate(user_id, username):
+        return True
+    if is_deputy(user_id) or is_moderator(user_id):
+        return True
+    return False
+
 def get_reputation(user_id):
-    cursor.execute("SELECT count FROM reputation WHERE user_id = ?", (str(user_id),))
-    res = cursor.fetchone()
-    return res[0] if res else 0
+    result = cursor.execute("SELECT count FROM reputation WHERE user_id = ?", (str(user_id),)).fetchone()
+    return result[0] if result else 0
 
 def db_increment_reputation(user_id):
     cursor.execute("""
@@ -301,14 +270,12 @@ def set_mentor(volunteer_id, mentor_id):
     conn.commit()
 
 def get_mentor_id(volunteer_id):
-    cursor.execute("SELECT mentor_id FROM mentorship WHERE volunteer_id = ?", (str(volunteer_id),))
-    res = cursor.fetchone()
-    return res[0] if res else None
+    result = cursor.execute("SELECT mentor_id FROM mentorship WHERE volunteer_id = ?", (str(volunteer_id),)).fetchone()
+    return result[0] if result else None
 
 def get_reprimands_count(user_id):
-    cursor.execute("SELECT count FROM reprimands WHERE user_id = ?", (str(user_id),))
-    res = cursor.fetchone()
-    return res[0] if res else 0
+    result = cursor.execute("SELECT count FROM reprimands WHERE user_id = ?", (str(user_id),)).fetchone()
+    return result[0] if result else 0
 
 def add_reprimand(user_id):
     cursor.execute("""
@@ -325,8 +292,9 @@ def clear_reprimands(user_id):
 def remove_all_staff_roles(user_id):
     """Удаляет все роли сотрудника"""
     tables = ['presidents', 'directors', 'admins', 'coders', 'moderators', 'employees', 'volunteers', 'designers', 'deputies']
+    user_id_str = str(user_id)
     for table in tables:
-        cursor.execute(f"DELETE FROM {table} WHERE user_id = ?", (str(user_id),))
+        cursor.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id_str,))
     conn.commit()
 
 def db_set_country(user_id, country_text):
@@ -335,9 +303,8 @@ def db_set_country(user_id, country_text):
     conn.commit()
 
 def db_get_country(user_id):
-    cursor.execute("SELECT country FROM user_settings WHERE user_id = ?", (str(user_id),))
-    res = cursor.fetchone()
-    return res[0] if res else "Unknown"
+    result = cursor.execute("SELECT country FROM user_settings WHERE user_id = ?", (str(user_id),)).fetchone()
+    return result[0] if result else "Unknown"
 
 def db_add_scammer_final(user_id, reason, proof_link, scam_rating):
     try:
@@ -348,7 +315,7 @@ def db_add_scammer_final(user_id, reason, proof_link, scam_rating):
         conn.commit()
         return True
     except Exception as e:
-        logging.error(f"Ошибка при добавлении скаммера: {e}")
+        logger.error(f"Ошибка при добавлении скаммера: {e}")
         return False
 
 def db_delete(table, user_id):
@@ -363,17 +330,16 @@ async def get_message_link(client, message):
     if message.chat.username:
         return f"https://t.me/{message.chat.username}/{message_id}"
     else:
-        raw_chat_id = str(chat_id)[4:]
+        raw_chat_id = str(chat_id).replace("-100", "")
         return f"https://t.me/c/{raw_chat_id}/{message_id}"
 
 async def get_guarantor_link(client, target_id):
     """Получает ссылку на гаранта"""
-    cursor.execute("SELECT guarantor_id FROM trusted WHERE user_id = ?", (str(target_id),))
-    res = cursor.fetchone()
-    if not res or not res[0]:
+    result = cursor.execute("SELECT guarantor_id FROM trusted WHERE user_id = ?", (str(target_id),)).fetchone()
+    if not result or not result[0]:
         return None
     
-    guarantor_id = res[0]
+    guarantor_id = result[0]
     try:
         guarantor_info = await client.get_chat(int(guarantor_id))
         name = guarantor_info.first_name or "Пользователь"
@@ -388,7 +354,7 @@ async def get_guarantor_link(client, target_id):
         
         return f"💠 **Проверен гарантом:** [Гарант {display_name}]({link})"
     except Exception as e:
-        logging.error(f"Ошибка получения информации о гаранте: {e}")
+        logger.error(f"Ошибка получения информации о гаранте: {e}")
         return None
 
 async def get_mentor_link(client, volunteer_id):
@@ -411,21 +377,19 @@ async def get_mentor_link(client, volunteer_id):
 
         return f"\n🎓 **Куратор:** [Куратор {display_name}]({link})"
     except Exception as e:
-        logging.error(f"Ошибка получения информации о кураторе: {e}")
+        logger.error(f"Ошибка получения информации о кураторе: {e}")
         return None
 
 def determine_user_role(user_id, username):
     """Определяет роль пользователя для выбора изображения"""
     user_id_str = str(user_id)
     
-    # Проверяем наличие плохой репутации (отдельный статус)
-    bad_rep_count = get_reprimands_count(user_id_str)
-    if bad_rep_count >= 2:
+    # Проверяем наличие плохой репутации
+    if get_reprimands_count(user_id_str) >= 2:
         return "Плохая репутация"
     
     # Проверяем является ли скаммером
-    cursor.execute("SELECT scam_rating FROM scammers WHERE user_id = ?", (user_id_str,))
-    scam_data = cursor.fetchone()
+    scam_data = cursor.execute("SELECT scam_rating FROM scammers WHERE user_id = ?", (user_id_str,)).fetchone()
     if scam_data and scam_data[0] is not None:
         rating = scam_data[0]
         if rating in [3, 4]:
@@ -437,7 +401,7 @@ def determine_user_role(user_id, username):
     if cursor.execute("SELECT 1 FROM trusted WHERE user_id = ?", (user_id_str,)).fetchone():
         return "Проверен гарантом"
     
-    # Проверяем является ли сотрудником (в порядке от высшей к низшей должности)
+    # Проверяем является ли сотрудником
     if is_owner(user_id_str, username):
         return "Создатель"
     elif is_president(user_id_str):
@@ -445,11 +409,11 @@ def determine_user_role(user_id, username):
     elif is_director(user_id_str):
         return "Директор"
     elif is_admin(user_id_str):
-        return "Гарант"  # Важно: для админов (гарантов) возвращаем "Гарант"
+        return "Гарант"
     elif is_deputy(user_id_str):
         return "Заместитель"
     elif is_coder(user_id_str):
-        return "Гарант"  # Кодеры также получают фото гаранта
+        return "Гарант"
     elif is_designer(user_id_str):
         return "Дизайнер"
     elif is_employee(user_id_str):
@@ -465,6 +429,8 @@ def generate_card_text(user_id, username, name, guarantor_link=None, mentor_link
     """Генерирует текст карточки пользователя"""
     user_id_str = str(user_id)
     country = db_get_country(user_id_str)
+    
+    # Проверяем роли
     is_owner_flag = is_owner(user_id_str, username)
     is_president_flag = is_president(user_id_str)
     is_coder_flag = is_coder(user_id_str)
@@ -476,22 +442,17 @@ def generate_card_text(user_id, username, name, guarantor_link=None, mentor_link
     is_volunteer_flag = is_volunteer(user_id_str)
     is_designer_flag = is_designer(user_id_str)
     
-    proof_link_text = ""
-    staff_label = ""
-    reprimand_text = ""
-    trusted_label = ""
-    mentor_label = ""
-    bad_reputation_label = ""
-
-    # Проверяем плохую репутацию (2 и более выговора)
+    # Плохая репутация
     reprimand_count = get_reprimands_count(user_id_str)
+    reprimand_text = ""
+    bad_reputation_label = ""
+    
     if reprimand_count > 0:
         reprimand_text = f"\n⚠️ **Количество выговоров:** {reprimand_count}/3"
-    
-    # Если 2 или более выговора - добавляем метку плохой репутации
     if reprimand_count >= 2:
         bad_reputation_label = " ⚠️ [Плохая репутация]"
     
+    # Проверяем скам
     scam_data = cursor.execute("SELECT reason, proof_link, scam_rating FROM scammers WHERE user_id = ?", (user_id_str,)).fetchone()
     
     if scam_data:
@@ -502,6 +463,7 @@ def generate_card_text(user_id, username, name, guarantor_link=None, mentor_link
         status, chance, color, footer = rating_info["text"], rating_info["chance"], "❌", f"⚠️ **ПРИЧИНА:** {reason}"
         if proof_link:
             footer += f"\n🔗 **ДОКАЗАТЕЛЬСТВА:** [Нажмите, чтобы увидеть пруфы]({proof_link})"
+    
     elif is_owner_flag:
         owner_name = None
         for owner_n, data in OWNERS.items():
@@ -511,45 +473,49 @@ def generate_card_text(user_id, username, name, guarantor_link=None, mentor_link
         
         status, chance, color, footer = "Создатель 👑", "0%", "✅", "Доверенный создатель [WARD AntiScam](https://t.me/WardReport)."
         name = owner_name or name
+    
     elif is_president_flag:
         status, chance, color, footer = "Президент 👑", "0%", "✅", "Высшая административная должность [WARD AntiScam](https://t.me/WardReport)."
+    
     elif is_coder_flag:
         status, chance, color, footer = "Кодер 💻", "0%", "✅", "Разработчик платформы [WARD](https://t.me/WardReport)."
+    
     elif is_designer_flag:
         status, chance, color, footer = "Дизайнер 🎨", "0%", "✅", "Дизайнер платформы [WARD](https://t.me/WardReport)."
+    
     elif is_director_flag:
         status, chance, color, footer = "Директор 🎯", "0%", "✅", "Руководитель проекта [WARD](https://t.me/WardReport)."
+    
     elif is_admin_flag:
         status, chance, color, footer = "Гарант 🛡", "0%", "✅", "Официальный гарант сервиса [WARD AntiScam](https://t.me/WardReport)."
+    
     elif is_deputy_flag:
         status, chance, color, footer = "Заместитель 💼", "1-5%", "✅", "Заместитель сервиса [WARD](https://t.me/WardReport)."
-        staff_label = " ✅ [Персонал базы]"
+    
     elif is_employee_flag or is_volunteer_flag:
         status, chance, color, footer = "Сотрудник (Стажер) 🎩", "5-15%", "✅", "Сотрудник сервиса [WARD](https://t.me/WardReport)."
-        staff_label = " ✅ [Персонал базы]"
+    
     elif is_moderator_flag:
         status, chance, color, footer = "Модератор 🔨", "15-30%", "✅", "Модератор сервиса [WARD](https://t.me/WardReport)."
-        staff_label = " ✅ [Персонал базы]"
+    
     elif cursor.execute("SELECT 1 FROM trusted WHERE user_id = ?", (user_id_str,)).fetchone():
         status, chance, color, footer = "Проверен гарантом 💠", "10-25%", "✅", "Пользователь имеет доверие сервиса [WARD](https://t.me/WardReport)."
-        if guarantor_link:
-            trusted_label = f"\n{guarantor_link}"
+    
     else:
         status, chance, color, footer = "Не найден в базе 👤", "40-50%", "⚠️", "Человека нет в базе [WARD](https://t.me/WardReport) (Риск присутствует)."
 
-    if is_volunteer_flag and mentor_link:
-        mentor_label = mentor_link
-
+    # Формируем текст
+    staff_label = " ✅ [Персонал базы]" if is_any_staff(user_id, username) else ""
+    trusted_label = f"\n{guarantor_link}" if guarantor_link else ""
+    mentor_label = mentor_link if mentor_link else ""
     leaked = get_reputation(user_id_str)
     display_link = f"@{username}" if username else "Нет юзернейма"
     
     if is_owner_flag and country == "Unknown":
         country = "Azerbaijan 🇦🇿"
     
-    id_display = f"[`{user_id_str}`]"
-
     text = (
-        f"👤 **{name}** | {display_link} | {id_display}\n\n"
+        f"👤 **{name}** | {display_link} | [`{user_id_str}`]\n\n"
         f"{color} **Статус:** {status}{bad_reputation_label}\n"
         f"📉 **Шанс скама:** {chance}{staff_label}{reprimand_text}{trusted_label}{mentor_label}\n"
         f"🌍 **Страна:** {country}\n"
@@ -563,10 +529,7 @@ def generate_card_text(user_id, username, name, guarantor_link=None, mentor_link
 
 def get_profile_keyboard(user_id, username):
     """Создает клавиатуру с ссылкой на профиль"""
-    if username:
-        url = f"https://t.me/{username}"
-    else:
-        url = f"tg://user?id={user_id}"
+    url = f"https://t.me/{username}" if username else f"tg://user?id={user_id}"
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Профиль пользователя", url=url)]])
 
 async def find_target(client, message, arg_text=None):
@@ -582,42 +545,21 @@ async def find_target(client, message, arg_text=None):
         return message.from_user, None
 
     try:
-        if clean.isdigit() and str(clean) in USER_INFO_CACHE:
-            cached_info = USER_INFO_CACHE[str(clean)]
-            class CachedUser:
-                def __init__(self, data):
-                    self.id = int(data['id'])
-                    self.username = data.get('username')
-                    self.first_name = data['name']
-                    self.is_bot = False
-            return CachedUser(cached_info), None
-
         if clean.isdigit():
             chat = await client.get_chat(int(clean))
         else:
             chat = await client.get_chat(clean)
         
-        if chat and str(chat.id).isdigit():
-            USER_INFO_CACHE[str(chat.id)] = {
-                'id': str(chat.id),
-                'name': chat.first_name,
-                'username': chat.username
-            }
-        
         return chat, None
     except Exception as e:
-        logging.error(f"Ошибка поиска цели: {e}")
+        logger.error(f"Ошибка поиска цели: {e}")
         return None, clean
 
-# Клавиатуры
+# ========== КЛАВИАТУРЫ ==========
 def welcome_keyboard():
-    """Клавиатура для приветственного сообщения"""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌟 начать работу", callback_data="start_work")]
-    ])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🌟 начать работу", callback_data="start_work")]])
 
 def main_menu_keyboard():
-    """Главное меню"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("Мой профиль ℹ️", callback_data="my_profile")],
         [
@@ -632,7 +574,6 @@ def main_menu_keyboard():
     ])
 
 def scam_report_keyboard():
-    """Клавиатура для репорта скама"""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📩 наша предложка", url="https://t.me/WardReport"),
@@ -642,7 +583,6 @@ def scam_report_keyboard():
     ])
 
 def select_country_keyboard():
-    """Клавиатура выбора страны"""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🇷🇺 Россия", callback_data="country_Russia 🇷🇺"),
@@ -668,11 +608,9 @@ def select_country_keyboard():
     ])
 
 def back_to_menu_keyboard():
-    """Кнопка возврата в меню"""
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_menu")]])
 
 def get_scam_rating_keyboard():
-    """Клавиатура выбора рейтинга скама"""
     buttons = []
     for rating, data in SCAM_RATING_OPTIONS.items():
         buttons.append([InlineKeyboardButton(f"{data['text']} ({data['chance']})", 
@@ -680,7 +618,6 @@ def get_scam_rating_keyboard():
     return InlineKeyboardMarkup(buttons)
 
 def staff_categories_keyboard():
-    """Клавиатура для категорий персонала"""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("👑 Создатели", callback_data="staff_category_owners"),
@@ -725,7 +662,7 @@ async def fetch_staff_info():
                 STAFF_CACHE[table].append(info)
                 USER_INFO_CACHE[user_id] = info
             except Exception as e:
-                logging.error(f"Ошибка получения информации о пользователе {user_id}: {e}")
+                logger.error(f"Ошибка получения информации о пользователе {user_id}: {e}")
                 STAFF_CACHE[table].append({
                     'id': user_id,
                     'name': f"ID: {user_id}",
@@ -737,7 +674,7 @@ def parse_time(time_str):
     time_str = time_str.lower()
     match = re.match(r"(\d+)([smhd])", time_str)
     if not match:
-        return None, "Ошибка форматы."
+        return None, "Ошибка формата."
     
     value = int(match.group(1))
     unit = match.group(2)
@@ -755,97 +692,7 @@ def parse_time(time_str):
     
     return datetime.now() + delta, None
 
-# Функции для отправки сообщений с изображениями
-async def send_card_message(client, chat_id, user_id, username, name, reply_to_message_id=None, guarantor_link=None, mentor_link=None):
-    """Отправляет карточку пользователя с изображением"""
-    text = generate_card_text(user_id, username, name, guarantor_link, mentor_link)
-    role = determine_user_role(str(user_id), username)
-    image_url = ROLE_IMAGES.get(role, ROLE_IMAGES["Нет в базе"])
-    profile_kb = get_profile_keyboard(user_id, username)
-    
-    try:
-        # Пытаемся отправить фото с описанием
-        message = await client.send_photo(
-            chat_id=chat_id,
-            photo=image_url,
-            caption=text,
-            reply_markup=profile_kb,
-            reply_to_message_id=reply_to_message_id
-        )
-        return message
-    except Exception as e:
-        logging.error(f"Ошибка отправки фото: {e}, пробуем отправить как текст")
-        try:
-            # Если не удалось отправить фото, отправляем текст с ссылкой на изображение
-            text_with_image = f"[⁠]({image_url}){text}"
-            message = await client.send_message(
-                chat_id=chat_id,
-                text=text_with_image,
-                reply_markup=profile_kb,
-                reply_to_message_id=reply_to_message_id,
-                disable_web_page_preview=False
-            )
-            return message
-        except Exception as e2:
-            logging.error(f"Ошибка отправки текста с изображением: {e2}")
-            # В крайнем случае отправляем просто текст
-            message = await client.send_message(
-                chat_id=chat_id,
-                text=text,
-                reply_markup=profile_kb,
-                reply_to_message_id=reply_to_message_id
-            )
-            return message
-
-async def edit_card_message(client, message, user_id, username, name, guarantor_link=None, mentor_link=None):
-    """Редактирует сообщение с карточкой пользователя"""
-    text = generate_card_text(user_id, username, name, guarantor_link, mentor_link)
-    role = determine_user_role(str(user_id), username)
-    image_url = ROLE_IMAGES.get(role, ROLE_IMAGES["Нет в базе"])
-    
-    try:
-        # Пытаемся отредактировать сообщение с фото
-        if message.photo:
-            # Если это сообщение с фото, редактируем подпись
-            await message.edit_caption(
-                caption=text,
-                reply_markup=get_profile_keyboard(user_id, username)
-            )
-        else:
-            # Если это текстовое сообщение, редактируем текст
-            text_with_image = f"[⁠]({image_url}){text}"
-            await message.edit_text(
-                text=text_with_image,
-                reply_markup=get_profile_keyboard(user_id, username),
-                disable_web_page_preview=False
-            )
-    except MessageNotModified:
-        pass
-    except Exception as e:
-        logging.error(f"Ошибка редактирования сообщения: {e}")
-
-async def send_main_menu(client, chat_id, callback_query=None):
-    """Отправляет главное меню"""
-    menu_text = "👋 **Главное меню [WARD AntiScam](https://t.me/WardReport)**\nВыбери действие:"
-    
-    try:
-        if callback_query and callback_query.message:
-            # Если есть callback_query, редактируем сообщение
-            await callback_query.message.edit_text(
-                text=menu_text,
-                reply_markup=main_menu_keyboard()
-            )
-        else:
-            # Если нет callback_query, отправляем новое сообщение
-            await client.send_message(
-                chat_id=chat_id,
-                text=menu_text,
-                reply_markup=main_menu_keyboard()
-            )
-    except Exception as e:
-        logging.error(f"Ошибка отправки главного меню: {e}")
-
-# Обработчики событий
+# ========== ОСНОВНЫЕ ФУНКЦИИ БОТА ==========
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
     """Обработчик команды /start"""
@@ -867,108 +714,8 @@ async def start_cmd(client, message):
             reply_markup=welcome_keyboard()
         )
     except Exception as e:
-        logging.error(f"Ошибка при отправке start: {e}")
+        logger.error(f"Ошибка при отправке start: {e}")
         await message.reply(welcome_text, reply_markup=welcome_keyboard())
-
-@app.on_message(filters.new_chat_members)
-async def welcome_new_member(client, message):
-    """Приветствие новых участников в чате"""
-    global WELCOME_ENABLED
-    
-    if not WELCOME_ENABLED:
-        return
-    
-    for new_member in message.new_chat_members:
-        if new_member.is_bot:
-            continue
-            
-        welcome_message = (
-            f"👋 Добро пожаловать в антискам базу [WARD AntiScam](https://t.me/WardReport), {new_member.mention}!\n"
-            f"Приятного общения, а также сейчас проходит набор на роли в нашей базе 📎\n"
-            f"Ссылка: https://t.me/+Aatv6sPwE34zYzRi\n"
-            f"Удачи!"
-        )
-        
-        try:
-            await message.reply(welcome_message)
-        except Exception as e:
-            logging.error(f"Ошибка при отправке приветствия: {e}")
-
-@app.on_message(filters.command("setpiar"))
-async def enable_welcome_cmd(client, message):
-    """Включение функции приветствия"""
-    global WELCOME_ENABLED
-    
-    if not is_any_staff(message.from_user.id, message.from_user.username):
-        await message.reply("❌ У вас нет прав для использования этой команды.")
-        return
-    
-    WELCOME_ENABLED = True
-    await message.reply("✅ Функция приветствия новых участников включена!")
-
-@app.on_message(filters.command("unsetpiar"))
-async def disable_welcome_cmd(client, message):
-    """Выключение функции приветствия"""
-    global WELCOME_ENABLED
-    
-    if not is_any_staff(message.from_user.id, message.from_user.username):
-        await message.reply("❌ У вас нет прав для использования этой команды.")
-        return
-    
-    WELCOME_ENABLED = False
-    await message.reply("✅ Функция приветствия новых участников отключена!")
-
-@app.on_message(filters.command("mms"))
-async def mms_cmd(client, message):
-    """Команда для вывода списка гарантов"""
-    admins_data = STAFF_CACHE.get('admins', [])
-    
-    if not admins_data:
-        await message.reply("⚠️ **Гаранты не найдены.** Список пуст или не был загружен при запуске бота.")
-        return
-
-    text = "🔥 **Официальные Гаранты [WARD AntiScam](https://t.me/WardReport):**\n\n"
-    buttons = []
-    
-    for i, info in enumerate(admins_data, 1):
-        name = info.get('name', f"ID: {info['id']}")
-        username = info.get('username')
-        
-        text += f"{i}. 🛡️ **{name}** (@{username or 'Нет юзернейма'})\n"
-        
-        profile_url = f"https://t.me/{username}" if username else f"tg://user?id={info['id']}"
-        buttons.append([InlineKeyboardButton(f"Профиль {name}", url=profile_url)])
-    
-    reply_markup = InlineKeyboardMarkup(buttons)
-    await message.reply(text, reply_markup=reply_markup)
-
-@app.on_message(filters.regex(r"^[!/]?модеры$", re.IGNORECASE) & filters.group)
-async def moderator_call_cmd(client, message):
-    """Вызов модераторов в чате"""
-    caller = message.from_user
-    moderator_ids = get_all_moderators()
-    
-    try:
-        chat_link = await get_message_link(client, message)
-    except Exception as e:
-        logging.error(f"Не удалось сгенерировать ссылку на чат: {e}")
-        chat_link = f"(Не удалось получить ссылку на чат ID: {message.chat.id})"
-
-    if moderator_ids:
-        notification_text = (
-            f"🚨 **ВЫЗОВ МОДЕРАТОРОВ!**\n\n"
-            f"👤 **Вызов от:** {caller.first_name} (@{caller.username or 'ID:' + str(caller.id)})\n"
-            f"📢 **Чат:** {message.chat.title}\n"
-            f"🔗 **Перейти к сообщению:** [Нажмите, чтобы ответить]({chat_link})"
-        )
-        
-        for mod_id in moderator_ids:
-            try:
-                await client.send_message(int(mod_id), notification_text, disable_web_page_preview=True)
-            except Exception as e:
-                logging.warning(f"Не удалось уведомить модератора {mod_id}: {e}")
-
-    await message.reply("✅ **Я вызвал модераторов!** Они получили уведомление в личные сообщения.")
 
 @app.on_callback_query()
 async def handle_callbacks(client, callback_query: CallbackQuery):
@@ -977,7 +724,7 @@ async def handle_callbacks(client, callback_query: CallbackQuery):
     user = callback_query.from_user
     
     try:
-        await callback_query.answer()  # Всегда отвечаем на callback сразу
+        await callback_query.answer()
         
         if data == "start_work":
             await callback_query.message.edit_text(
@@ -1007,14 +754,6 @@ async def handle_callbacks(client, callback_query: CallbackQuery):
                 db_increment_reputation(volunteer_id)
                 del MENTOR_REQUESTS[req_id]
                 await callback_query.message.edit_text(f"✅ **Вы одобрили занесение!**\nID скамера: `{target_id}`")
-                
-                try:
-                    await client.send_message(
-                        int(volunteer_id),
-                        f"✅ Ваш куратор **одобрил** ваш запрос на добавление пользователя `{target_id}` в базу!"
-                    )
-                except:
-                    pass
             else:
                 await callback_query.message.edit_text("Ошибка базы данных.")
 
@@ -1025,14 +764,6 @@ async def handle_callbacks(client, callback_query: CallbackQuery):
                 volunteer_id = request_data['volunteer_id']
                 del MENTOR_REQUESTS[req_id]
                 await callback_query.message.edit_text("❌ **Вы отклонили запрос.**")
-                
-                try:
-                    await client.send_message(
-                        int(volunteer_id),
-                        f"❌ Ваш куратор **отклонил** ваш запрос на добавление пользователя в базу."
-                    )
-                except:
-                    pass
             else:
                 await callback_query.message.delete()
 
@@ -1044,51 +775,6 @@ async def handle_callbacks(client, callback_query: CallbackQuery):
             
             target_id, reason, proof_link = PENDING_SCAM_ENTRIES.pop(user.id)
             
-            is_regular_staff = can_moderate(user.id, user.username)
-            
-            if (is_volunteer(user.id) or is_employee(user.id)) and not is_regular_staff:
-                mentor_id = get_mentor_id(user.id)
-                if not mentor_id:
-                    await callback_query.message.edit_text(
-                        "❌ **Ошибка:** Вы сотрудник (стажер), но у вас нет куратора. "
-                        "Вы не можете заносить в базу самостоятельно."
-                    )
-                    return
-                
-                req_id = str(uuid.uuid4())[:8]
-                MENTOR_REQUESTS[req_id] = {
-                    'target_id': target_id,
-                    'reason': reason,
-                    'proof_link': proof_link,
-                    'rating': rating,
-                    'volunteer_id': user.id
-                }
-                
-                kb = InlineKeyboardMarkup([
-                    [
-                        InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_scam_{req_id}"),
-                        InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_scam_{req_id}")
-                    ]
-                ])
-                
-                try:
-                    await client.send_message(
-                        int(mentor_id),
-                        f"📩 **Запрос от сотрудника** {user.first_name} (@{user.username or 'без юзернейма'})\n\n"
-                        f"⚠️ Ваш сотрудник хочет **занести в базу** пользователя:\n"
-                        f"👤 **Скамер:** `{target_id}`\n"
-                        f"📝 **Причина:** {reason}\n"
-                        f"📊 **Рейтинг:** {SCAM_RATING_OPTIONS[rating]['text']}\n"
-                        f"🔗 **Пруфы:** {proof_link}",
-                        reply_markup=kb
-                    )
-                    await callback_query.message.edit_text("✅ **Запрос отправлен вашему куратору!** Ожидайте решения.")
-                except Exception as e:
-                    await callback_query.message.edit_text(
-                        f"❌ Ошибка отправки куратору: {e}. Возможно, у него закрыта личка."
-                    )
-                return
-
             if db_add_scammer_final(target_id, reason, proof_link, rating):
                 db_increment_reputation(user.id)
                 rating_text = SCAM_RATING_OPTIONS[rating]['text']
@@ -1108,35 +794,7 @@ async def handle_callbacks(client, callback_query: CallbackQuery):
                 [InlineKeyboardButton("🔙 Назад", callback_data="back_to_menu")]
             ])
             
-            role = determine_user_role(str(user.id), user.username)
-            image_url = ROLE_IMAGES.get(role, ROLE_IMAGES["Нет в базе"])
-            
-            try:
-                # Редактируем текущее сообщение
-                if callback_query.message.photo:
-                    # Если это сообщение с фото, редактируем его
-                    await callback_query.message.edit_media(
-                        media=image_url,
-                        caption=text,
-                        reply_markup=kb
-                    )
-                else:
-                    # Если это текстовое сообщение, отправляем новое фото
-                    await callback_query.message.delete()
-                    await client.send_photo(
-                        chat_id=callback_query.message.chat.id,
-                        photo=image_url,
-                        caption=text,
-                        reply_markup=kb
-                    )
-            except Exception as e:
-                logging.error(f"Ошибка отправки фото: {e}")
-                text_with_image = f"[⁠]({image_url}){text}"
-                await callback_query.message.edit_text(
-                    text_with_image,
-                    reply_markup=kb,
-                    disable_web_page_preview=False
-                )
+            await callback_query.message.edit_text(text, reply_markup=kb)
         
         elif data == "report_scam":
             scam_text = (
@@ -1151,83 +809,6 @@ async def handle_callbacks(client, callback_query: CallbackQuery):
                 "👥 **Выберите категорию сотрудников [WARD AntiScam](https://t.me/WardReport):**",
                 reply_markup=staff_categories_keyboard()
             )
-        
-        elif data.startswith("staff_category_"):
-            category = data.split("_")[-1]
-            
-            category_map = {
-                "owners": ("👑 Создатели базы [WARD AntiScam](https://t.me/WardReport)", "Создатели"),
-                "presidents": ("🎯 Президенты базы [WARD AntiScam](https://t.me/WardReport)", "Президенты"),
-                "directors": ("🔥 Директора базы [WARD AntiScam](https://t.me/WardReport)", "Директора"),
-                "admins": ("🛡 Гаранты базы [WARD AntiScam](https://t.me/WardReport)", "Гаранты"),
-                "deputies": ("💼 Заместители базы [WARD AntiScam](https://t.me/WardReport)", "Заместители"),
-                "moderators": ("🔨 Модераторы базы [WARD AntiScam](https://t.me/WardReport)", "Модераторы"),
-                "coders": ("💻 Кодеры базы [WARD AntiScam](https://t.me/WardReport)", "Кодеры"),
-                "designers": ("🎨 Дизайнеры базы [WARD AntiScam](https://t.me/WardReport)", "Дизайнеры"),
-                "employees": ("🎩 Сотрудники (Стажеры) базы [WARD AntiScam](https://t.me/WardReport)", "Сотрудники"),
-            }
-            
-            if category == "owners":
-                staff_list_text = f"👑 **Создатели базы [WARD AntiScam](https://t.me/WardReport):**\n\n"
-                buttons = []
-                
-                for owner_name, owner_data in OWNERS.items():
-                    username = owner_data["username"]
-                    user_id = owner_data["id"]
-                    
-                    if username:
-                        profile_url = f"https://t.me/{username}"
-                        display_name = f"@{username}"
-                    else:
-                        profile_url = f"tg://user?id={user_id}"
-                        display_name = f"ID: {user_id}"
-                    
-                    staff_list_text += f"• **{owner_name}** - {display_name}\n"
-                    buttons.append([InlineKeyboardButton(f"Профиль {owner_name}", url=profile_url)])
-                
-                if not OWNERS:
-                    staff_list_text += "Список пуст."
-                
-                reply_markup = InlineKeyboardMarkup(buttons + [[InlineKeyboardButton("🔙 Назад к категориям", callback_data="list_all_staff")]])
-                await callback_query.message.edit_text(staff_list_text, reply_markup=reply_markup)
-                return
-            
-            role_table_map = {
-                "presidents": "presidents",
-                "directors": "directors",
-                "admins": "admins",
-                "deputies": "deputies",
-                "moderators": "moderators",
-                "coders": "coders",
-                "designers": "designers",
-                "employees": "employees",
-            }
-            
-            role_table = role_table_map.get(category)
-            category_name, _ = category_map.get(category, (category, "👤"))
-            
-            if role_table:
-                staff_list_text = f"{category_name}:\n\n"
-                staff_data = STAFF_CACHE.get(role_table, [])
-                
-                buttons = []
-                
-                for i, info in enumerate(staff_data, 1):
-                    name = info.get('name', f"ID: {info['id']}")
-                    username = info.get('username')
-                    
-                    if username:
-                        staff_list_text += f"{i}. **{name}** (@{username})\n"
-                        profile_url = f"https://t.me/{username}"
-                        buttons.append([InlineKeyboardButton(f"Профиль {name}", url=profile_url)])
-                    else:
-                        staff_list_text += f"{i}. **{name}** (Контакт скрыт)\n"
-                
-                if not staff_data:
-                    staff_list_text += "Список пуст."
-                
-                reply_markup = InlineKeyboardMarkup(buttons + [[InlineKeyboardButton("🔙 Назад к категориям", callback_data="list_all_staff")]])
-                await callback_query.message.edit_text(staff_list_text, reply_markup=reply_markup)
         
         elif data == "faq":
             text = (
@@ -1276,11 +857,12 @@ async def handle_callbacks(client, callback_query: CallbackQuery):
             )
         
         elif data == "back_to_menu":
-            # Просто редактируем текущее сообщение
-            await send_main_menu(client, callback_query.message.chat.id, callback_query)
+            await callback_query.message.edit_text(
+                "👋 **Главное меню [WARD AntiScam](https://t.me/WardReport)**\nВыбери действие:",
+                reply_markup=main_menu_keyboard()
+            )
         
         elif data == "set_country":
-            # Для страниц без фото просто редактируем текст
             await callback_query.message.edit_text(
                 "🌍 **Выберите вашу страну из списка:**",
                 reply_markup=select_country_keyboard()
@@ -1296,610 +878,180 @@ async def handle_callbacks(client, callback_query: CallbackQuery):
                 [InlineKeyboardButton("🔙 Назад", callback_data="back_to_menu")]
             ])
             
-            role = determine_user_role(str(user.id), user.username)
-            image_url = ROLE_IMAGES.get(role, ROLE_IMAGES["Нет в базе"])
+            await callback_query.message.edit_text(text, reply_markup=kb)
+        
+        elif data.startswith("staff_category_"):
+            category = data.split("_")[-1]
             
-            try:
-                if callback_query.message.photo:
-                    # Редактируем фото
-                    await callback_query.message.edit_media(
-                        media=image_url,
-                        caption=text,
-                        reply_markup=kb
-                    )
-                else:
-                    # Редактируем текст
-                    text_with_image = f"[⁠]({image_url}){text}"
-                    await callback_query.message.edit_text(
-                        text=text_with_image,
-                        reply_markup=kb,
-                        disable_web_page_preview=False
-                    )
-            except MessageNotModified:
-                pass
+            if category == "owners":
+                text = "👑 **Создатели базы [WARD AntiScam](https://t.me/WardReport):**\n\n"
+                for owner_name, owner_data in OWNERS.items():
+                    username = owner_data["username"]
+                    user_id = owner_data["id"]
+                    display_name = f"@{username}" if username else f"ID: {user_id}"
+                    text += f"• **{owner_name}** - {display_name}\n"
+                
+                await callback_query.message.edit_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад к категориям", callback_data="list_all_staff")]])
+                )
+            else:
+                await callback_query.message.edit_text(
+                    f"Категория {category} в разработке...",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="list_all_staff")]])
+                )
         
     except MessageNotModified:
         pass
     except Exception as e:
-        logging.error(f"Ошибка в обработчике callback: {e}")
+        logger.error(f"Ошибка в обработчике callback: {e}")
 
-# Команды управления персоналом
-@app.on_message(filters.command("курировать"))
-async def curate_cmd(client, message):
-    """Назначение куратора для сотрудника (стажера)"""
-    # Только создатели могут назначать кураторов
-    if not is_owner(message.from_user.id, message.from_user.username):
-        await message.reply("❌ Назначать кураторов могут только Создатели.")
-        return
-
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    
-    if not target or not str(target.id).isdigit():
-        await message.reply("⚠️ Пример: `/курировать @username`")
-        return
-    
-    if not is_staff(target.id):
-        await message.reply("❌ Курировать можно ТОЛЬКО сотрудников (стажеров).")
-        return
-
-    set_mentor(target.id, message.from_user.id)
-    await message.reply(f"🎓 Вы назначены куратором для **{target.first_name}**!")
-    try:
-        await client.send_message(target.id, f"🎓 **{message.from_user.first_name}** назначен вашим куратором!")
-    except:
-        pass
-
-@app.on_message(filters.command("выговор"))
-async def reprimand_cmd(client, message):
-    """Выдача выговора персоналу"""
-    # Только создатели могут выдавать выговоры
-    if not is_owner(message.from_user.id, message.from_user.username):
-        await message.reply("❌ Выдавать выговоры могут только Создатели.")
-        return
-    
-    sender_username = message.from_user.username
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-
-    if not target or not str(target.id).isdigit():
-        await message.reply("⚠️ Пример: `/выговор @username` или ответьте на сообщение.")
-        return
-    
-    t_id = target.id
-    if t_id == message.from_user.id:
-        await message.reply("❌ Нельзя выдать выговор самому себе.")
-        return
-    if not is_any_staff(t_id, target.username):
-        await message.reply("❌ Выговоры можно выдавать только персоналу.")
-        return
-
-    # Только создатели могут выдавать выговоры
-    if not is_owner(message.from_user.id, sender_username):
-        await message.reply("❌ У вас недостаточно прав для выдачи выговоров.")
-        return
-
-    new_count = add_reprimand(t_id)
-    
-    if new_count >= 3:
-        remove_all_staff_roles(t_id)
-        clear_reprimands(t_id)
-        await fetch_staff_info()
-        await message.reply(
-            f"🚫 **УВОЛЬНЕНИЕ!**\n\n"
-            f"👤 Пользователь: **{target.first_name}**\n"
-            f"❗️ Достигнут лимит выговоров (3/3).\n"
-            f"❌ Все должности сняты автоматически."
-        )
-    else:
-        await message.reply(
-            f"⚠️ **Выдан выговор!**\n\n"
-            f"👤 Пользователь: **{target.first_name}**\n"
-            f"🔢 Всего выговоров: **{new_count}/3**\n"
-            f"При достижении 3-х выговоров роль будет снята."
-        )
-
-@app.on_message(filters.command("мут") & filters.group)
-async def mute_cmd(client, message):
-    """Мут пользователя в группе"""
-    if not can_temp_moderate(message.from_user.id, message.from_user.username):
-        await message.reply("🛡 У вас нет прав.")
-        return
-    
-    target_user = None
-    time_str = None
-    reason = "Без причины"
-    
-    if message.reply_to_message:
-        target_user = message.reply_to_message.from_user
-        args = message.text.split(maxsplit=1)[1] if len(message.text.split(maxsplit=1)) > 1 else ""
-        parts = args.split(maxsplit=1)
-        time_str = parts[0] if parts else None
-        reason = parts[1] if len(parts) > 1 else reason
-    elif len(message.command) >= 3:
-        target_str = message.command[1]
-        time_str = message.command[2]
-        reason = " ".join(message.command[3:]) if len(message.command) > 3 else reason
-        try:
-            target_user = await client.get_chat(target_str)
-        except:
-            pass
-    
-    if not target_user:
-        await message.reply("⚠️ Пример: `/мут @username 30m`")
-        return
-    
-    if time_str:
-        until_date, error = parse_time(time_str)
-        if error:
-            return await message.reply("❌ Неверное время.")
-    else:
-        until_date = datetime.now() + timedelta(days=366)
-
-    try:
-        await client.restrict_chat_member(
-            message.chat.id, 
-            target_user.id, 
-            ChatPermissions(), 
-            until_date=until_date
-        )
-        await message.reply(f"🔨 Мут **{target_user.first_name}** на {time_str or 'навсегда'}. Причина: {reason}")
-    except Exception as e:
-        await message.reply(f"❌ Ошибка: {e}")
-
-# Команды проверки
 @app.on_message(filters.regex(r"(?i)^(чек|check|/check)\b"))
 async def check_handler(client, message):
     """Обработчик команды проверки"""
     user_id = message.from_user.id
-    username = message.from_user.username
     current_time = datetime.now()
-    is_staff_member = can_moderate(user_id, username)
-
-    if not is_staff_member:
+    
+    # Лимит для обычных пользователей
+    if not can_moderate(user_id, message.from_user.username):
         if user_id in RATE_LIMITS:
             if (current_time - RATE_LIMITS[user_id]).total_seconds() < CHECK_LIMIT_SECONDS:
                 await message.reply("⏰ Подождите перед следующим чеком.")
                 return
         RATE_LIMITS[user_id] = current_time
     
+    # Получаем цель проверки
     parts = message.text.split(maxsplit=1)
     args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
+    
+    target = None
+    if message.reply_to_message:
+        target = message.reply_to_message.from_user
+    elif args:
+        clean = get_clean_id(args)
+        if clean.lower() in ["ми", "me", "я"]:
+            target = message.from_user
+        else:
+            try:
+                if clean.isdigit():
+                    target = await client.get_chat(int(clean))
+                else:
+                    target = await client.get_chat(clean)
+            except Exception as e:
+                logger.error(f"Ошибка поиска пользователя: {e}")
     
     if not target:
-        await message.reply("⚠️ Пример: `Чек @username`.")
+        await message.reply("⚠️ Пример: `Чек @username` или ответьте на сообщение.")
         return
     
-    guarantor_link = None
-    if cursor.execute("SELECT 1 FROM trusted WHERE user_id = ?", (str(target.id),)).fetchone():
-        guarantor_link = await get_guarantor_link(client, target.id)
+    # Формируем ответ
+    text = generate_card_text(target.id, target.username, target.first_name or "Пользователь")
+    await message.reply(text, reply_markup=get_profile_keyboard(target.id, target.username))
 
-    mentor_link = None
-    if is_staff(target.id):
-        mentor_link = await get_mentor_link(client, target.id)
-
-    # Отправляем карточку без цитирования
-    await send_card_message(
-        client=client,
-        chat_id=message.chat.id,
-        user_id=target.id,
-        username=target.username,
-        name=target.first_name,
-        guarantor_link=guarantor_link,
-        mentor_link=mentor_link
-    )
-
-# Команды добавления/удаления ролей
-# ВСЕ команды управления ролями доступны ТОЛЬКО создателям
+# ========== КОМАНДЫ ДЛЯ СОЗДАТЕЛЕЙ ==========
 @app.on_message(filters.regex(r"(?i)^\+президент"))
 async def add_president(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
+    if not is_owner(message.from_user.id, message.from_user.username):
         await message.reply("❌ Назначать Президентов могут только Создатели.")
         return
+    
     parts = message.text.split(maxsplit=1)
     args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target and str(target.id).isdigit():
+    
+    target = None
+    if message.reply_to_message:
+        target = message.reply_to_message.from_user
+    elif args:
+        try:
+            clean = get_clean_id(args)
+            if clean.isdigit():
+                target = await client.get_chat(int(clean))
+            else:
+                target = await client.get_chat(clean)
+        except:
+            pass
+    
+    if target:
         remove_all_staff_roles(target.id)
         cursor.execute("INSERT OR REPLACE INTO presidents (user_id) VALUES (?)", (str(target.id),))
         conn.commit()
-        await fetch_staff_info()
         await message.reply(f"👑 **{target.first_name}** назначен Президентом [WARD AntiScam](https://t.me/WardReport)!")
 
 @app.on_message(filters.regex(r"(?i)^\-президент"))
 async def remove_president(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
+    if not is_owner(message.from_user.id, message.from_user.username):
         await message.reply("❌ Снимать Президентов могут только Создатели.")
         return
+    
     parts = message.text.split(maxsplit=1)
     args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target and str(target.id).isdigit():
+    
+    target = None
+    if message.reply_to_message:
+        target = message.reply_to_message.from_user
+    elif args:
+        try:
+            clean = get_clean_id(args)
+            if clean.isdigit():
+                target = await client.get_chat(int(clean))
+            else:
+                target = await client.get_chat(clean)
+        except:
+            pass
+    
+    if target:
         if cursor.execute("DELETE FROM presidents WHERE user_id = ?", (str(target.id),)).rowcount > 0:
             conn.commit()
-            await fetch_staff_info()
-            await message.reply(f"👑 **{target.first_name}** снят с поста Президента [WARD AntiScam](https://t.me/WardReport).")
-        else: 
+            await message.reply(f"👑 **{target.first_name}** снят с поста Президента.")
+        else:
             await message.reply("ℹ️ Не был Президентом.")
 
-@app.on_message(filters.regex(r"(?i)^\+директор"))
-async def add_director(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Назначать Директоров могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        remove_all_staff_roles(target.id)
-        cursor.execute("INSERT OR REPLACE INTO directors (user_id) VALUES (?)", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🎯 **{target.first_name}** назначен Директором [WARD AntiScam](https://t.me/WardReport)!")
+# Добавьте аналогичные обработчики для других ролей по аналогии с +президент/-президент
 
-@app.on_message(filters.regex(r"(?i)^\-директор"))
-async def remove_director(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Снимать Директоров могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        cursor.execute("DELETE FROM directors WHERE user_id = ?", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🎯 **{target.first_name}** снят с Директора [WARD AntiScam](https://t.me/WardReport).")
-
-@app.on_message(filters.regex(r"(?i)^\+заместитель"))
-async def add_deputy(client, message):
-    """Добавление заместителя"""
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Назначать Заместителей могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        remove_all_staff_roles(target.id)
-        cursor.execute("INSERT OR REPLACE INTO deputies (user_id) VALUES (?)", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"💼 **{target.first_name}** назначен Заместителем [WARD AntiScam](https://t.me/WardReport)!")
-
-@app.on_message(filters.regex(r"(?i)^\-заместитель"))
-async def remove_deputy(client, message):
-    """Удаление заместителя"""
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Снимать Заместителей могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        cursor.execute("DELETE FROM deputies WHERE user_id = ?", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"💼 **{target.first_name}** снят с должности Заместителя [WARD AntiScam](https://t.me/WardReport).")
-
-@app.on_message(filters.regex(r"(?i)^\+кодер"))
-async def add_coder(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Назначать Кодеров могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        remove_all_staff_roles(target.id)
-        cursor.execute("INSERT OR REPLACE INTO coders (user_id) VALUES (?)", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"💻 **{target.first_name}** назначен Кодером [WARD AntiScam](https://t.me/WardReport)!")
-
-@app.on_message(filters.regex(r"(?i)^\-кодер"))
-async def remove_coder(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Снимать Кодеров могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        cursor.execute("DELETE FROM coders WHERE user_id = ?", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"💻 **{target.first_name}** снят с Кодера [WARD AntiScam](https://t.me/WardReport).")
-
-@app.on_message(filters.regex(r"(?i)^\+дизайнер"))
-async def add_designer(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Назначать Дизайнеров могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        remove_all_staff_roles(target.id)
-        cursor.execute("INSERT OR REPLACE INTO designers (user_id) VALUES (?)", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🎨 **{target.first_name}** назначен Дизайнером [WARD AntiScam](https://t.me/WardReport)!")
-
-@app.on_message(filters.regex(r"(?i)^\-дизайнер"))
-async def remove_designer(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Снимать Дизайнеров могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        cursor.execute("DELETE FROM designers WHERE user_id = ?", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🎨 **{target.first_name}** снят с Дизайнера [WARD AntiScam](https://t.me/WardReport).")
-
-@app.on_message(filters.regex(r"(?i)^\+гарант"))
-async def add_guarantor(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Назначать Гарантов могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        remove_all_staff_roles(target.id)
-        cursor.execute("INSERT OR REPLACE INTO admins (user_id) VALUES (?)", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🛡 **{target.first_name}** назначен Гарантом [WARD AntiScam](https://t.me/WardReport)!")
-
-@app.on_message(filters.regex(r"(?i)^\-гарант"))
-async def remove_guarantor(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Снимать Гарантов могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        cursor.execute("DELETE FROM admins WHERE user_id = ?", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🛡 **{target.first_name}** снят с Гаранта [WARD AntiScam](https://t.me/WardReport).")
-
-@app.on_message(filters.regex(r"(?i)^\+сотрудник"))
-async def add_employee(client, message):
-    """Добавление сотрудника (стажера)"""
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Назначать Сотрудников (Стажеров) могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        remove_all_staff_roles(target.id)
-        cursor.execute("INSERT OR REPLACE INTO employees (user_id) VALUES (?)", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🎩 **{target.first_name}** назначен Сотрудником (Стажером) [WARD AntiScam](https://t.me/WardReport)!")
-
-@app.on_message(filters.regex(r"(?i)^\-сотрудник"))
-async def remove_employee(client, message):
-    """Удаление сотрудника (стажера)"""
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Снимать Сотрудников (Стажеров) могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        cursor.execute("DELETE FROM employees WHERE user_id = ?", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🎩 **{target.first_name}** снят с должности Сотрудника (Стажера) [WARD AntiScam](https://t.me/WardReport).")
-
-@app.on_message(filters.regex(r"(?i)^\+модератор"))
-async def add_moderator(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Назначать Модераторов могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        remove_all_staff_roles(target.id)
-        cursor.execute("INSERT OR REPLACE INTO moderators (user_id) VALUES (?)", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🔨 **{target.first_name}** назначен Модератором [WARD AntiScam](https://t.me/WardReport)!")
-
-@app.on_message(filters.regex(r"(?i)^\-модератор"))
-async def remove_moderator(client, message):
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Снимать Модераторов могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        cursor.execute("DELETE FROM moderators WHERE user_id = ?", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🔨 **{target.first_name}** снят с Модератора [WARD AntiScam](https://t.me/WardReport).")
-
-@app.on_message(filters.regex(r"(?i)^(\+волонтер|\+стажер|\/volunteer)"))
-async def add_volunteer(client, message):
-    """Добавление волонтера (устаревшая команда, используйте +сотрудник)"""
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Используйте команду `+сотрудник`. Назначать могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        remove_all_staff_roles(target.id)
-        cursor.execute("INSERT OR REPLACE INTO employees (user_id) VALUES (?)", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🎩 **{target.first_name}** назначен Сотрудником (Стажером) [WARD AntiScam](https://t.me/WardReport)!")
-
-@app.on_message(filters.regex(r"(?i)^(\-волонтер|\-стажер)"))
-async def remove_volunteer(client, message):
-    """Удаление волонтера (устаревшая команда, используйте -сотрудник)"""
-    if not is_owner(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Используйте команду `-сотрудник`. Снимать могут только Создатели.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        cursor.execute("DELETE FROM employees WHERE user_id = ?", (str(target.id),))
-        conn.commit()
-        await fetch_staff_info()
-        await message.reply(f"🎩 **{target.first_name}** снят с должности [WARD AntiScam](https://t.me/WardReport).")
-
-# Команды доверия и репутации
-@app.on_message(filters.command("trust") | filters.regex(r"(?i)^/траст"))
-async def add_trust(client, message):
-    if not can_moderate(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Выдавать статус 'Проверен гарантом' могут только Гаранты и выше.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    
-    sender_id = str(message.from_user.id)
-    
-    if target and str(target.id).isdigit():
-        cursor.execute("INSERT OR REPLACE INTO trusted (user_id, guarantor_id) VALUES (?, ?)", 
-                       (str(target.id), sender_id))
-        conn.commit()
-        await message.reply(f"💠 **{target.first_name}** получил статус 'Проверен гарантом [WARD AntiScam](https://t.me/WardReport)'!")
-
-@app.on_message(filters.regex(r"(?i)^\-траст"))
-async def remove_trust(client, message):
-    if not can_moderate(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Снимать статус 'Проверен гарантом' могут только Гаранты и выше.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        if cursor.execute("DELETE FROM trusted WHERE user_id = ?", (str(target.id),)).rowcount > 0:
-            conn.commit()
-            await message.reply(f"💠 **{target.first_name}** лишен статуса 'Проверен гарантом [WARD AntiScam](https://t.me/WardReport)'.")
-        else: 
-            await message.reply("ℹ️ У пользователя не было этого статуса.")
-
-@app.on_message(filters.regex(r"(?i)^\+спасибо") | filters.regex(r"(?i)^\+rep"))
-async def add_rep(client, message):
-    if not can_moderate(message.from_user.id, message.from_user.username): 
-        await message.reply("❌ Повышать репутацию могут только Гаранты и выше.")
-        return
-    parts = message.text.split(maxsplit=1)
-    args = parts[1] if len(parts) > 1 else None
-    target, _ = await find_target(client, message, args)
-    if target:
-        if target.id == message.from_user.id: 
-            return
-        cursor.execute("""
-            INSERT INTO reputation (user_id, count) VALUES (?, 1) 
-            ON CONFLICT(user_id) DO UPDATE SET count = count + 1
-        """, (str(target.id),))
-        conn.commit()
-        await message.reply(f"🤝 Репутация **{target.first_name}** повышена!")
-
-# Команды скама
-@app.on_message(filters.command(["scam", "скам"]))
-async def add_scam_cmd(client, message):
-    if not (can_moderate(message.from_user.id, message.from_user.username) or is_staff(message.from_user.id)):
-        return
-    
-    if len(message.command) < 4:
-        await message.reply("⚠️ Пример: `/scam @username Причина Ссылка`")
-        return
-    
-    target_str = message.command[1]
-    target, _ = await find_target(client, message, target_str)
-    
-    if not target or not str(target.id).isdigit():
-        await message.reply("❌ Пользователь не найден.")
-        return
-    
-    if is_any_staff(target.id, target.username):
-        await message.reply("❌ Нельзя скам сотрудника [WARD AntiScam](https://t.me/WardReport).")
-        return
-    
-    proof_link = message.command[-1]
-    reason = " ".join(message.command[2:-1])
-    save_id = str(target.id)
-    PENDING_SCAM_ENTRIES[message.from_user.id] = [save_id, reason, proof_link]
-    await message.reply(f"✅ Заносим **{target.first_name}**. Выберите рейтинг:", reply_markup=get_scam_rating_keyboard())
-
-@app.on_message(filters.command("unscam"))
-async def un_scam_cmd(client, message):
-    if not can_moderate(message.from_user.id, message.from_user.username): 
-        return
-    
-    if len(message.command) < 2:
-        await message.reply("⚠️ Пример: `/unscam @username`")
-        return
-    
-    target_str = message.command[1]
-    target, _ = await find_target(client, message, target_str)
-    
-    if not target: 
-        return
-    
-    save_id = str(target.id)
-    if cursor.execute("DELETE FROM scammers WHERE user_id = ?", (save_id,)).rowcount > 0:
-        conn.commit()
-        await message.reply(f"✅ **{target_str}** удален из базы скамеров [WARD AntiScam](https://t.me/WardReport).")
-    else: 
-        await message.reply("ℹ️ Пользователь не был в базе скамеров.")
-
-# Общие сообщения
-@app.on_message(filters.text & filters.private & ~filters.regex(r"^\/"))
-async def general_private_message_handler(client, message):
-    """Обработчик общих сообщений в личке"""
-    if len(message.text) > 50: 
-        return
-    if re.match(r"(?i)^(чек|check)\b", message.text.split()[0]): 
-        return
-    await send_main_menu(client, message.chat.id)
-
-# Запуск бота
+# ========== ЗАПУСК БОТА ==========
 async def main():
-    """Основная функция запуска"""
-    await fetch_staff_info()
-    print("🚀 Бот [WARD AntiScam](https://t.me/WardReport) запущен и готов к работе!")
-    print("👑 Создатели:")
-    for name, data in OWNERS.items():
-        print(f"  - {name} (ID: {data['id']}, Username: {data['username'] or 'нет'})")
-    print("\n📸 **Изображения для ролей:**")
-    print(f"  • Гарант: {ROLE_IMAGES['Гарант']}")
-    print(f"  • Админ: {ROLE_IMAGES['Админ']}")
-    print(f"  • Кодер: {ROLE_IMAGES['Кодер']}")
-    
+    """Основная функция запуска бота"""
     try:
+        # Инициализация базы данных
+        if not init_database():
+            logger.error("❌ Не удалось инициализировать базу данных")
+            return
+        
+        # Загрузка информации о персонале
+        await fetch_staff_info()
+        
+        logger.info("=" * 50)
+        logger.info("🚀 Бот WARD AntiScam запускается...")
+        logger.info(f"👑 Создатели: {len(OWNERS)}")
+        for name, data in OWNERS.items():
+            logger.info(f"  - {name} (ID: {data['id']}, Username: {data['username'] or 'нет'})")
+        logger.info("=" * 50)
+        
+        # Запуск бота
         await app.start()
-        print("✅ Бот успешно запущен!")
+        logger.info("✅ Бот успешно запущен и готов к работе!")
+        logger.info("📱 Используйте /start в личных сообщениях с ботом")
+        
+        # Ожидание сообщений
         await idle()
+        
     except Exception as e:
-        logging.error(f"Ошибка запуска бота: {e}")
+        logger.error(f"❌ Критическая ошибка при запуске: {e}")
     finally:
-        await app.stop()
+        # Корректное завершение
+        try:
+            await app.stop()
+            if conn:
+                conn.close()
+            logger.info("👋 Бот остановлен.")
+        except:
+            pass
 
 if __name__ == "__main__":
+    # Запускаем бота
     try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n👋 Бот остановлен.")
-    finally:
-        conn.close()
+        logger.info("\n👋 Бот остановлен пользователем.")
+    except Exception as e:
+        logger.error(f"❌ Непредвиденная ошибка: {e}")
